@@ -1,76 +1,82 @@
-# Agentic Data Analyst
+﻿# Agentic Data Analyst
 
 A production-style agentic analytics system that converts natural-language business questions into validated MySQL queries, executes them through a read-only database layer, and returns evidence-backed insights and visualizations.
+
+---
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    subgraph UI["Presentation & Client Layer"]
-        User(["Business User / Analyst"])
-        StreamlitUI["Streamlit Workspace (Web UI)"]
-        FastAPI["FastAPI REST Service (/analyze)"]
-        User -->|Natural Language Inquiry| StreamlitUI
-        User -->|HTTP POST Request| FastAPI
+    classDef client fill:#EBF3FF,stroke:#3B82F6,stroke-width:2px,color:#1E3A8A;
+    classDef agent fill:#F3F4F6,stroke:#4B5563,stroke-width:2px,color:#111827;
+    classDef gate fill:#FEF3C7,stroke:#D97706,stroke-width:2px,color:#92400E;
+    classDef storage fill:#ECFDF5,stroke:#059669,stroke-width:2px,color:#065F46;
+    classDef output fill:#F5F3FF,stroke:#7C3AED,stroke-width:2px,color:#4C1D95;
+
+    subgraph ClientLayer ["1. Client & Entrypoint"]
+        User(["User Inquiry / API Request"]):::client
+        UI["Streamlit UI / FastAPI Service"]:::client
+        User --> UI
     end
 
-    subgraph LangGraphWorkflow["LangGraph Agent Workflow & State Machine"]
+    subgraph AgentPipeline ["2. LangGraph StateGraph Execution Pipeline"]
         direction TB
-        Planner["1. Planner Agent\nInfers Business Intent & Multi-Step Plan"]
-        SchemaNode["2. Schema Explorer\nExtracts Active MySQL DDL via SQLAlchemy"]
-        SQLAgent["3. SQL Generation Agent\nConstructs MySQL Query via LLM"]
-        Validator{"4. SQL Validator\nAST Safety Check with sqlglot"}
-        Executor["5. Read-Only Query Executor\nSession-Level Read-Only & 30s Timeout"]
-        BranchCheck{"Execution OK?"}
-        AnalysisNode["6. Analysis Agent\nDerives Statistics & Formats Executive Report"]
-        VizNode["7. Visualization Agent\nDetermines Chart Type & Plots Data"]
+        Planner["1. Planner Agent<br/><i>Intent parsing & query planning</i>"]:::agent
+        Schema["2. Schema Explorer<br/><i>MySQL DDL metadata introspection</i>"]:::agent
+        SQLGen["3. SQL Generator Agent<br/><i>LLM text-to-SQL generation</i>"]:::agent
+        Validator{"4. SQL Validator<br/><i>sqlglot AST security checks</i>"}:::gate
+        Executor["5. Read-Only Executor<br/><i>Transaction isolation & timeout</i>"]:::agent
+        RetryGate{"Execution Check<br/><i>Error recovery & retry loop</i>"}:::gate
+        Analyst["6. Analysis Agent<br/><i>Statistical synthesis & insight extraction</i>"]:::agent
+        Visualizer["7. Visualization Agent<br/><i>Matplotlib / Seaborn chart generation</i>"]:::agent
 
-        StreamlitUI -->|Initialize Workflow| Planner
-        FastAPI -->|Initialize Workflow| Planner
-
-        Planner --> SchemaNode
-        SchemaNode --> SQLAgent
-        SQLAgent --> Validator
-        Validator -->|Valid Query| Executor
-        Validator -->|AST Safety Error| BranchCheck
-        Executor -->|Result Set or SQL Error| BranchCheck
-
-        BranchCheck -->|"Errors Detected & Retries < 3"| SQLAgent
-        BranchCheck -->|"Success or Max Retries Met"| AnalysisNode
-        AnalysisNode --> VizNode
+        UI --> Planner
+        Planner --> Schema
+        Schema --> SQLGen
+        SQLGen --> Validator
+        Validator -->|Valid SQL| Executor
+        Validator -->|Security Error| RetryGate
+        Executor -->|Result Set / Execution Error| RetryGate
+        RetryGate -->|Error & Retries < 3| SQLGen
+        RetryGate -->|Success| Analyst
+        Analyst --> Visualizer
     end
 
-    subgraph ExternalServices["Inference & Storage Layer"]
-        Groq["Groq Cloud Inference Engine\nopenai/gpt-oss-120b"]
-        MySQL[("MySQL Target Database\nUser Tables & Demo Data")]
-        Matplotlib["Matplotlib / Seaborn\nVisual Asset Generation"]
-        Logs[("Structured Run Logs\nObservability & Audit Trail")]
-
-        Planner -.->|Prompt| Groq
-        SQLAgent -.->|Prompt + Feedback| Groq
-        AnalysisNode -.->|Prompt + Stats| Groq
-        VizNode -.->|Chart Decision| Groq
-
-        Executor -->|SELECT Query| MySQL
-        MySQL -->|Data Records| Executor
-        VizNode -->|Save Artifact| Matplotlib
+    subgraph ExternalServices ["3. Database & Engine Services"]
+        Groq["Groq Cloud LLM (gpt-oss-120b)"]:::storage
+        DB[("MySQL Database (Read-Only)")]:::storage
     end
 
-    VizNode --> FinalResponse(["Structured Analytics Report\nSummary + Insights + Query + Chart"])
-    FinalResponse -.-> Logs
-    FinalResponse --> StreamlitUI
-    FinalResponse --> FastAPI
+    subgraph OutputLayer ["4. Structured Response"]
+        Report(["Analytics Report<br/>Executive Summary + Insights + SQL + Charts"]):::output
+    end
+
+    AgentPipeline -.->|Inference| Groq
+    Executor <-->|Read Data| DB
+    Visualizer --> Report
+    Report --> UI
 ```
+
+---
 
 ## Application Previews
 
-The following screenshots demonstrate the workspace, natural language query workflow, and analytical report outputs:
+The following screenshots demonstrate the workspace layout, natural language query workflow, and analytical report outputs:
 
-| Workspace & Analytical Report | Telemetry & Execution Flow |
-|:---:|:---:|
-| ![Analysis Output](png/png1.png) | ![Execution Telemetry & SQL](png/png2.png) |
-| **Interactive Query & Visualizations** | **Database Connection & Schema Introspection** |
-| ![Generated Visualization](png/png3.png) | ![Workspace Layout](png/png4.png) |
+### 1. Workspace & Analytical Report
+![Analysis Output](png/png1.png)
+
+### 2. Execution Telemetry & SQL Trace
+![Execution Telemetry & SQL](png/png2.png)
+
+### 3. Interactive Visualizations & Chart Generation
+![Generated Visualization](png/png3.png)
+
+### 4. Database Connection & Schema Introspection
+![Workspace Layout](png/png4.png)
+
+---
 
 ## Local Setup
 
@@ -106,7 +112,7 @@ You can populate a comprehensive demo e-commerce dataset (`customers`, `products
    ```bash
    python app/db/seed_demo.py --host localhost --user root --password your_password --database your_db
    ```
-3. **Via SQL file**: Import [`sample_dataset.sql`](file:///c:/Users/Ujjwal%20Bajpayee/Desktop/Agentic%20Data%20Analyst/agentic-data-analyst/sample_dataset.sql) using MySQL CLI or your preferred GUI client:
+3. **Via SQL file**: Import `sample_dataset.sql` using MySQL CLI or your preferred GUI client:
    ```bash
    mysql -u root -p your_db < sample_dataset.sql
    ```
@@ -119,6 +125,8 @@ uvicorn main:app --reload --port 8000
 
 API docs at `http://localhost:8000/docs`.
 
+---
+
 ## Docker
 
 ```bash
@@ -129,6 +137,8 @@ docker-compose up --build
 
 - Streamlit: `http://localhost:8501`
 - FastAPI: `http://localhost:8000`
+
+---
 
 ## API Endpoints
 
@@ -151,6 +161,8 @@ docker-compose up --build
 }
 ```
 
+---
+
 ## Evaluation
 
 ```bash
@@ -164,11 +176,15 @@ python evaluation/evaluate.py \
 
 Results are saved to `evaluation/results/eval_<timestamp>.json`.
 
+---
+
 ## Tests
 
 ```bash
 pytest tests/ -v
 ```
+
+---
 
 ## Security
 
@@ -179,12 +195,16 @@ pytest tests/ -v
 - Input length limit: 2,000 characters
 - Error messages sanitized before returning to client
 
+---
+
 ## Known Limitations
 
 - Schema caching is in-memory per session (not cross-process persistent)
 - Visualization is best-effort; complex multi-axis charts are not yet supported
 - The 50-question benchmark assumes a standard e-commerce schema; actual scores depend on your database structure
 - Window functions require MySQL 8.0+
+
+---
 
 ## Evaluation Results
 
