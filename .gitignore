@@ -13,3 +13,5 @@ build/
 .mypy_cache/
 evaluation/results/*.json
 *.log
+*.db
+data/*.db

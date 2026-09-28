@@ -65,21 +65,85 @@ CREATE TABLE IF NOT EXISTS payments (
 """
 
 
+SQLITE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR(150) NOT NULL,
+    category_id INTEGER,
+    price DECIMAL(10,2) NOT NULL,
+    stock_quantity INTEGER DEFAULT 100,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS customers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(150) NOT NULL,
+    segment VARCHAR(50) DEFAULT 'Standard',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER,
+    status VARCHAR(50) DEFAULT 'completed',
+    discount_amount DECIMAL(10,2) DEFAULT 0.00,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS order_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    product_id INTEGER NOT NULL,
+    quantity INTEGER NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    payment_method VARCHAR(50) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+);
+"""
+
+
 def seed_database(engine) -> dict:
+    is_sqlite = engine.dialect.name == "sqlite"
+    schema_sql = SQLITE_SCHEMA if is_sqlite else SCHEMA_SQL
+
     with engine.begin() as conn:
-        for stmt in SCHEMA_SQL.strip().split(";"):
+        for stmt in schema_sql.strip().split(";"):
             cleaned = stmt.strip()
             if cleaned:
                 conn.execute(text(cleaned))
 
-        conn.execute(text("SET FOREIGN_KEY_CHECKS = 0;"))
-        conn.execute(text("TRUNCATE TABLE payments;"))
-        conn.execute(text("TRUNCATE TABLE order_items;"))
-        conn.execute(text("TRUNCATE TABLE orders;"))
-        conn.execute(text("TRUNCATE TABLE products;"))
-        conn.execute(text("TRUNCATE TABLE categories;"))
-        conn.execute(text("TRUNCATE TABLE customers;"))
-        conn.execute(text("SET FOREIGN_KEY_CHECKS = 1;"))
+        if is_sqlite:
+            conn.execute(text("PRAGMA foreign_keys = OFF;"))
+            for tbl in ["payments", "order_items", "orders", "products", "categories", "customers"]:
+                conn.execute(text(f"DELETE FROM {tbl};"))
+            conn.execute(text("PRAGMA foreign_keys = ON;"))
+        else:
+            conn.execute(text("SET FOREIGN_KEY_CHECKS = 0;"))
+            conn.execute(text("TRUNCATE TABLE payments;"))
+            conn.execute(text("TRUNCATE TABLE order_items;"))
+            conn.execute(text("TRUNCATE TABLE orders;"))
+            conn.execute(text("TRUNCATE TABLE products;"))
+            conn.execute(text("TRUNCATE TABLE categories;"))
+            conn.execute(text("TRUNCATE TABLE customers;"))
+            conn.execute(text("SET FOREIGN_KEY_CHECKS = 1;"))
 
         categories = ["Electronics", "Home & Kitchen", "Apparel", "Books", "Sports & Fitness"]
         for cat in categories:
@@ -187,8 +251,9 @@ def seed_database(engine) -> dict:
             chosen_products = random.sample(products_data, num_items)
             order_total = 0.0
 
-            for p_name, _, p_price, _ in chosen_products:
-                prod_id = products_data.index((p_name, _, p_price, _)) + 1
+            for item in chosen_products:
+                prod_id = products_data.index(item) + 1
+                p_name, cat_id, p_price, stock = item
                 qty = random.randint(1, 3)
                 conn.execute(
                     text("INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES (:oid, :pid, :qty, :uprice)"),

@@ -1,6 +1,17 @@
-﻿# Agentic Data Analyst
+# Agentic Data Analyst
 
-A production-style agentic analytics system that converts natural-language business questions into validated MySQL queries, executes them through a read-only database layer, and returns evidence-backed insights and visualizations.
+A production-grade, dialect-agnostic agentic data analysis system powered by **LangGraph**, **Groq Cloud LLM**, **sqlglot**, and **Plotly**. It decomposes complex natural language inquiries into structured analytical plans, semantically links schemas, verifies AST-level security and performance (`EXPLAIN` plan & Cartesian audit), and generates interactive executive-level reports.
+
+---
+
+## Key Features
+
+- **Zero-Setup Demo Mode**: Built-in SQLite database with 140 orders, 28 products, and 30 customers ready to test in 5 seconds with zero external database configuration. Also supports production **MySQL** and **PostgreSQL**.
+- **Semantic Schema Linking & Pruning**: Intelligently scores and links only relevant tables and foreign key bridges, scaling up to 500+ database tables without overflowing prompt context windows.
+- **Dialect-Aware SQL Generation**: Generates native dialect SQL (MySQL 8.0+, PostgreSQL, SQLite) with automated query performance auditing and AST Cartesian join checks.
+- **Agentic Self-Correction with Query `EXPLAIN`**: Catches execution errors, destructive SQL, and inefficient plans, driving iterative self-correction loops.
+- **Dynamic Interactive Visualizations**: Generates rich **Plotly** figures with hover tooltips, zoom/pan controls, and PNG exports.
+- **Real-Time Streaming Agent Traces**: Delivers real-time agent thoughts and node status updates in both the Streamlit UI (`st.status`) and FastAPI via Server-Sent Events (`/analyze/stream`).
 
 ---
 
@@ -16,27 +27,27 @@ flowchart TD
 
     subgraph ClientLayer ["1. Client & Entrypoint"]
         User(["User Inquiry / API Request"]):::client
-        UI["Streamlit UI / FastAPI Service"]:::client
+        UI["Streamlit UI (SSE Stream) / FastAPI Service"]:::client
         User --> UI
     end
 
     subgraph AgentPipeline ["2. LangGraph StateGraph Execution Pipeline"]
         direction TB
-        Planner["1. Planner Agent<br/><i>Intent parsing & query planning</i>"]:::agent
-        Schema["2. Schema Explorer<br/><i>MySQL DDL metadata introspection</i>"]:::agent
-        SQLGen["3. SQL Generator Agent<br/><i>LLM text-to-SQL generation</i>"]:::agent
-        Validator{"4. SQL Validator<br/><i>sqlglot AST security checks</i>"}:::gate
-        Executor["5. Read-Only Executor<br/><i>Transaction isolation & timeout</i>"]:::agent
-        RetryGate{"Execution Check<br/><i>Error recovery & retry loop</i>"}:::gate
+        Planner["1. Planner Agent<br/><i>Intent parsing & analytical strategy</i>"]:::agent
+        Schema["2. Schema Explorer<br/><i>Semantic Schema Linking & FK Pruning</i>"]:::agent
+        SQLGen["3. SQL Generator Agent<br/><i>Dialect-aware Text-to-SQL (MySQL / Postgres / SQLite)</i>"]:::agent
+        Validator{"4. SQL Validator & EXPLAIN<br/><i>sqlglot AST checks, Cartesian detection, EXPLAIN audit</i>"}:::gate
+        Executor["5. Read-Only Executor<br/><i>Transaction isolation & execution timeout</i>"]:::agent
+        RetryGate{"Execution Check<br/><i>Error recovery & self-correction loop</i>"}:::gate
         Analyst["6. Analysis Agent<br/><i>Statistical synthesis & insight extraction</i>"]:::agent
-        Visualizer["7. Visualization Agent<br/><i>Matplotlib / Seaborn chart generation</i>"]:::agent
+        Visualizer["7. Visualization Agent<br/><i>Interactive Plotly & Matplotlib charts</i>"]:::agent
 
         UI --> Planner
         Planner --> Schema
         Schema --> SQLGen
         SQLGen --> Validator
-        Validator -->|Valid SQL| Executor
-        Validator -->|Security Error| RetryGate
+        Validator -->|Valid & Safe SQL| Executor
+        Validator -->|Security or Syntax Error| RetryGate
         Executor -->|Result Set / Execution Error| RetryGate
         RetryGate -->|Error & Retries < 3| SQLGen
         RetryGate -->|Success| Analyst
@@ -44,12 +55,12 @@ flowchart TD
     end
 
     subgraph ExternalServices ["3. Database & Engine Services"]
-        Groq["Groq Cloud LLM (gpt-oss-120b)"]:::storage
-        DB[("MySQL Database (Read-Only)")]:::storage
+        Groq["Groq Cloud LLM"]:::storage
+        DB[("Multi-DB Layer<br/>SQLite (Demo) | MySQL | PostgreSQL")]:::storage
     end
 
     subgraph OutputLayer ["4. Structured Response"]
-        Report(["Analytics Report<br/>Executive Summary + Insights + SQL + Charts"]):::output
+        Report(["Analytics Report<br/>Executive Summary + Insights + SQL + EXPLAIN + Interactive Plotly Charts"]):::output
     end
 
     AgentPipeline -.->|Inference| Groq
@@ -62,19 +73,19 @@ flowchart TD
 
 ## Application Previews
 
-The following screenshots demonstrate the workspace layout, natural language query workflow, and analytical report outputs:
+The following previews demonstrate the multi-agent workflow, real-time telemetry, interactive Plotly visualizations, and dialect-aware SQL execution:
 
-### 1. Workspace & Analytical Report
-![Analysis Output](png/png1.png)
+### 1. Executive Summary & Analytical Report
+![Analytical Report](png/png2.png)
 
-### 2. Execution Telemetry & SQL Trace
-![Execution Telemetry & SQL](png/png2.png)
+### 2. Interactive Visual Insights 
+![Interactive Plotly Visualization](png/png3.png)
 
-### 3. Interactive Visualizations & Chart Generation
-![Generated Visualization](png/png3.png)
+### 3. Execution Telemetry, Inferred Intent & Analytical Plan
+![Execution Telemetry & Planning](png/png1.png)
 
-### 4. Database Connection & Schema Introspection
-![Workspace Layout](png/png4.png)
+### 4. Dialect Aware SQL Generation & Execution Plan
+![Executed SQL Statement](png/sql_code.png)
 
 ---
 
@@ -82,16 +93,17 @@ The following screenshots demonstrate the workspace layout, natural language que
 
 ### Prerequisites
 
-- Python 3.11+
-- A running MySQL instance (any version)
-- A Groq API key (free at [console.groq.com](https://console.groq.com))
+- **Python 3.11+**
+- **Groq API key** (free at [console.groq.com](https://console.groq.com))
+- *(Optional)* A running MySQL or PostgreSQL instance — or use the built-in **Zero-Setup Demo SQLite mode** with zero configuration required.
 
 ### Install
 
 ```bash
+git clone https://github.com/your-username/agentic-data-analyst.git
 cd agentic-data-analyst
 python -m venv .venv
-.venv\Scripts\activate        # Windows
+.venv\Scripts\activate        # Windows (or source .venv/bin/activate on Linux/macOS)
 pip install -r requirements.txt
 ```
 
@@ -101,20 +113,15 @@ pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-Open `http://localhost:8501`, enter your Groq API key and MySQL credentials in the sidebar, and start asking questions.
+Open `http://localhost:8501`, enter your Groq API key, click **Connect Demo Database** (Zero-Setup SQLite mode), and start analyzing immediately!
 
-### Seed Demo Dataset
+### Multi-Database Support & Seeding
 
-You can populate a comprehensive demo e-commerce dataset (`customers`, `products`, `categories`, `orders`, `order_items`, `payments`) in three ways:
-
-1. **Via Streamlit UI**: Connect your database in the sidebar and click **Load Sample Dataset**.
-2. **Via Python CLI**:
+1. **Zero-Setup Demo SQLite DB**: Automatically initializes and seeds `data/demo_ecommerce.db` on first run.
+2. **External MySQL / PostgreSQL**: Configure host, port, user, password, and database in the sidebar or via API.
+3. **Seed MySQL/Postgres via CLI**:
    ```bash
    python app/db/seed_demo.py --host localhost --user root --password your_password --database your_db
-   ```
-3. **Via SQL file**: Import `sample_dataset.sql` using MySQL CLI or your preferred GUI client:
-   ```bash
-   mysql -u root -p your_db < sample_dataset.sql
    ```
 
 ### Run FastAPI
@@ -123,36 +130,34 @@ You can populate a comprehensive demo e-commerce dataset (`customers`, `products
 uvicorn main:app --reload --port 8000
 ```
 
-API docs at `http://localhost:8000/docs`.
-
----
-
-## Docker
-
-```bash
-cp .env.example .env
-# Edit .env with your credentials
-docker-compose up --build
-```
-
-- Streamlit: `http://localhost:8501`
-- FastAPI: `http://localhost:8000`
+Interactive API documentation available at `http://localhost:8000/docs`.
 
 ---
 
 ## API Endpoints
 
 | Method | Path | Description |
-|--------|------|-------------|
-| POST | `/analyze` | Run full agent workflow |
-| GET | `/health` | Health check |
-| GET | `/runs/{run_id}` | Fetch run log |
+|---|---|---|
+| POST | `/analyze` | Run full agent workflow and return structured report + Plotly figure spec |
+| POST | `/analyze/stream` | Stream real-time agent execution traces via Server-Sent Events (SSE) |
+| GET | `/health` | Service health status |
+| GET | `/runs/{run_id}` | Fetch historical run telemetry |
 
-**POST /analyze request:**
+**POST /analyze request (Demo SQLite Mode):**
+```json
+{
+  "question": "Which product categories generated the most revenue?",
+  "groq_api_key": "gsk_...",
+  "use_demo_db": true
+}
+```
+
+**POST /analyze request (External MySQL / PostgreSQL):**
 ```json
 {
   "question": "Which product categories generated the most revenue last quarter?",
   "groq_api_key": "gsk_...",
+  "dialect": "mysql",
   "mysql_host": "localhost",
   "mysql_port": 3306,
   "mysql_user": "readonly_user",
@@ -186,23 +191,21 @@ pytest tests/ -v
 
 ---
 
-## Security
+## Security & Safety Guardrails
 
-- All credentials passed via environment variables or UI — never hardcoded
-- MySQL connections are enforced read-only at session level
-- SQL validated for destructive keywords before execution
-- Query timeout: 30s, row cap: 10,000
-- Input length limit: 2,000 characters
-- Error messages sanitized before returning to client
+- **Zero Hardcoded Secrets**: All credentials passed via environment variables or UI session memory.
+- **Enforced Read-Only Isolation**: Database connections enforced read-only at session/connection level (MySQL `READ ONLY` session transaction; SQLite foreign key PRAGMA and write-blocking).
+- **Deterministic AST Validation**: SQL parsed via `sqlglot` to block destructive keywords (`DROP`, `DELETE`, `UPDATE`, `ALTER`, `TRUNCATE`, `GRANT`).
+- **CTE & Subquery Virtual Table Resolution**: Accurately recognizes Common Table Expressions (`WITH ... AS (...)`) to prevent false-positive schema rejections.
+- **Pre-Execution Performance Auditing**: Runs `EXPLAIN QUERY PLAN` and flags unconstrained Cartesian joins before executing on the database.
+- **Hard Execution Boundaries**: 30-second query timeout and 10,000-row circuit breaker.
 
 ---
 
-## Known Limitations
+## Technical Notes
 
-- Schema caching is in-memory per session (not cross-process persistent)
-- Visualization is best-effort; complex multi-axis charts are not yet supported
-- The 50-question benchmark assumes a standard e-commerce schema; actual scores depend on your database structure
-- Window functions require MySQL 8.0+
+- **Multi-Dialect Compatibility**: Natively formats date/time, window functions, and string aggregations across MySQL 8.0+, PostgreSQL, and SQLite.
+- **Evaluation Suite**: 50 analytical benchmark questions covering simple aggregations, multi-table joins, CTEs, and window functions (`evaluation/evaluate.py`).
 
 ---
 

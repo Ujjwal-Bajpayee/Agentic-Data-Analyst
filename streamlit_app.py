@@ -6,8 +6,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from app.graph.workflow import run_workflow
-from app.db.connection import build_engine, test_connection
+import plotly.graph_objects as go
+from app.graph.workflow import run_workflow, stream_workflow
+from app.db.connection import build_engine, test_connection, ensure_demo_database, get_demo_db_path
 from app.db.seed_demo import seed_database
 from app.observability import new_run_id, log_run
 
@@ -400,61 +401,109 @@ with st.sidebar:
     if groq_model_input:
         st.session_state.groq_model = groq_model_input.strip()
 
-    st.markdown('<div class="sidebar-label">MySQL Database</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-label">Database Source</div>', unsafe_allow_html=True)
+    db_source = st.radio(
+        "Database Source Mode",
+        ["Demo SQLite (Zero-Setup)", "External Database (MySQL / Postgres)"],
+        label_visibility="collapsed",
+        key="db_source_radio",
+    )
 
-    mysql_host = st.text_input("Host", value="localhost", placeholder="localhost", key="mysql_host")
-    col_port, col_db = st.columns([1, 2])
-    with col_port:
-        mysql_port = st.number_input("Port", value=3306, min_value=1, max_value=65535, key="mysql_port")
-    with col_db:
-        mysql_db = st.text_input("Database", placeholder="db_name", key="mysql_db")
-
-    mysql_user = st.text_input("Username", placeholder="username", key="mysql_user")
-    mysql_password = st.text_input("Password", type="password", placeholder="password", key="mysql_password")
-
-    st.markdown('<div class="sidebar-btn">', unsafe_allow_html=True)
-    connect_btn = st.button("Connect Database", key="connect_btn", use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    if connect_btn:
-        if not all([mysql_host, mysql_db, mysql_user]):
-            st.error("Host, Database, and Username are required.")
-        else:
+    if db_source == "Demo SQLite (Zero-Setup)":
+        st.caption("Instant in-project SQLite database with 140 orders, 28 products, and 30 customers.")
+        if st.button("Connect Demo Database", key="connect_demo_btn", use_container_width=True):
             try:
-                with st.spinner("Connecting..."):
-                    engine = build_engine(
-                        host=mysql_host,
-                        port=int(mysql_port),
-                        user=mysql_user,
-                        password=mysql_password,
-                        database=mysql_db,
-                    )
+                with st.spinner("Initializing demo database..."):
+                    engine = ensure_demo_database()
                     ok, err_msg = test_connection(engine)
                 if ok:
                     st.session_state.connected = True
                     st.session_state.db_config = {
-                        "host": mysql_host,
-                        "port": int(mysql_port),
-                        "user": mysql_user,
-                        "password": mysql_password,
-                        "database": mysql_db,
+                        "dialect": "sqlite",
+                        "host": "sqlite",
+                        "database": str(get_demo_db_path()),
                     }
                 else:
                     st.session_state.connected = False
-                    st.error(f"Connection failed: {err_msg}")
+                    st.error(f"Demo connection failed: {err_msg}")
             except Exception as e:
                 st.session_state.connected = False
-                st.error(f"Connection error: {str(e)}")
+                st.error(f"Error: {str(e)}")
+
+    else:
+        dialect_choice = st.selectbox("Engine Dialect", ["MySQL", "PostgreSQL", "SQLite"], index=0, key="dialect_select")
+        dialect_key = dialect_choice.lower()
+
+        if dialect_key == "sqlite":
+            sqlite_path = st.text_input("SQLite File Path", value=str(get_demo_db_path()), key="custom_sqlite_path")
+            if st.button("Connect SQLite", key="connect_custom_sqlite", use_container_width=True):
+                engine = build_engine(database=sqlite_path, dialect="sqlite")
+                ok, err = test_connection(engine)
+                if ok:
+                    st.session_state.connected = True
+                    st.session_state.db_config = {"dialect": "sqlite", "host": "sqlite", "database": sqlite_path}
+                else:
+                    st.error(f"Connection failed: {err}")
+        else:
+            default_port = 5432 if dialect_key == "postgresql" else 3306
+            db_host = st.text_input("Host", value="localhost", placeholder="localhost", key="ext_db_host")
+            col_port, col_db = st.columns([1, 2])
+            with col_port:
+                db_port = st.number_input("Port", value=default_port, min_value=1, max_value=65535, key="ext_db_port")
+            with col_db:
+                db_name = st.text_input("Database", placeholder="db_name", key="ext_db_name")
+
+            db_user = st.text_input("Username", placeholder="username", key="ext_db_user")
+            db_password = st.text_input("Password", type="password", placeholder="password", key="ext_db_password")
+
+            st.markdown('<div class="sidebar-btn">', unsafe_allow_html=True)
+            connect_btn = st.button("Connect Database", key="connect_btn", use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            if connect_btn:
+                if not all([db_host, db_name, db_user]):
+                    st.error("Host, Database, and Username are required.")
+                else:
+                    try:
+                        with st.spinner("Connecting..."):
+                            engine = build_engine(
+                                host=db_host,
+                                port=int(db_port),
+                                user=db_user,
+                                password=db_password,
+                                database=db_name,
+                                dialect=dialect_key,
+                            )
+                            ok, err_msg = test_connection(engine)
+                        if ok:
+                            st.session_state.connected = True
+                            st.session_state.db_config = {
+                                "dialect": dialect_key,
+                                "host": db_host,
+                                "port": int(db_port),
+                                "user": db_user,
+                                "password": db_password,
+                                "database": db_name,
+                            }
+                        else:
+                            st.session_state.connected = False
+                            st.error(f"Connection failed: {err_msg}")
+                    except Exception as e:
+                        st.session_state.connected = False
+                        st.error(f"Connection error: {str(e)}")
 
     if st.session_state.connected:
+        db_disp = st.session_state.db_config.get("database", "")
+        if len(db_disp) > 20:
+            db_disp = Path(db_disp).name
         st.markdown(f'''
         <div class="status-badge online">
             <span class="status-dot"></span>
-            <span>Connected: {st.session_state.db_config.get("database", "")}</span>
+            <span>Connected: {db_disp} ({st.session_state.db_config.get("dialect", "mysql").upper()})</span>
         </div>
         ''', unsafe_allow_html=True)
         st.markdown('<div class="sidebar-btn" style="margin-bottom: 1rem;">', unsafe_allow_html=True)
-        if st.button("Load Sample Dataset", key="seed_btn", use_container_width=True):
+        if st.button("Reload Sample Dataset", key="seed_btn", use_container_width=True):
             try:
                 with st.spinner("Populating demo tables..."):
                     engine = build_engine(**st.session_state.db_config)
@@ -537,35 +586,62 @@ if run_btn:
         st.stop()
 
     run_id = new_run_id()
+    result = None
 
-    with st.spinner("Processing analytical workflow..."):
-        try:
-            result = run_workflow(
-                question=question.strip(),
-                db_config=st.session_state.db_config,
-                groq_api_key=st.session_state.groq_api_key,
-                run_id=run_id,
-                groq_model=st.session_state.groq_model,
-            )
+    status_container = st.status("Agentic Execution Pipeline Initialized...", expanded=True)
+    try:
+        for step in stream_workflow(
+            question=question.strip(),
+            db_config=st.session_state.db_config,
+            groq_api_key=st.session_state.groq_api_key,
+            run_id=run_id,
+            groq_model=st.session_state.groq_model,
+        ):
+            node = step["node"]
+            state = step["current_state"]
+            result = state
 
-            df = result.get("query_result")
-            exec_meta = result.get("execution_metadata") or {}
-            status = "success" if df is not None and not (isinstance(df, pd.DataFrame) and df.empty) else "no_data"
+            if node == "planner":
+                status_container.update(label="Planner: Decomposed inquiry into analytical steps...", state="running")
+                status_container.write(f"• **Planner**: Inferred intent: *{state.get('intent', 'Analysis')}*")
+            elif node == "schema_explorer":
+                status_container.update(label="Schema Explorer: Linking relevant tables...", state="running")
+                linked = state.get("selected_tables", [])
+                status_container.write(f"• **Schema Explorer**: Linked tables: `{', '.join(linked)}`")
+            elif node == "sql_agent":
+                retries = state.get("iteration_count", 1)
+                status_container.update(label=f"SQL Agent: Generated query (Attempt {retries})...", state="running")
+                warnings = state.get("query_warnings", [])
+                warn_text = f" ({len(warnings)} quality audits checked)" if warnings else ""
+                status_container.write(f"• **SQL Agent**: Synthesized SQL & verified AST security{warn_text}.")
+            elif node == "analysis_agent":
+                status_container.update(label="Analyst: Synthesizing executive report...", state="running")
+                status_container.write("• **Analyst**: Computed statistical distributions & insights.")
+            elif node == "visualization_agent":
+                status_container.update(label="Visualizer: Rendering interactive charts...", state="running")
+                status_container.write("• **Visualizer**: Chart prepared.")
 
-            log_run(run_id, {
-                "question": question,
-                "generated_sql": result.get("generated_sql"),
-                "status": status,
-                "retries": result.get("iteration_count", 0),
-                "execution_time_ms": exec_meta.get("execution_time_ms"),
-            })
+        status_container.update(label="Analysis & Visualization Complete!", state="complete", expanded=False)
 
-            st.session_state.history.append({"question": question, "run_id": run_id, "result": result})
-            st.session_state.question_input = ""
+        df = result.get("query_result")
+        exec_meta = result.get("execution_metadata") or {}
+        status = "success" if df is not None and not (isinstance(df, pd.DataFrame) and df.empty) else "no_data"
 
-        except Exception as e:
-            st.error(f"Analysis failed: {str(e)}")
-            st.stop()
+        log_run(run_id, {
+            "question": question,
+            "generated_sql": result.get("generated_sql"),
+            "status": status,
+            "retries": result.get("iteration_count", 0),
+            "execution_time_ms": exec_meta.get("execution_time_ms"),
+        })
+
+        st.session_state.history.append({"question": question, "run_id": run_id, "result": result})
+        st.session_state.question_input = ""
+
+    except Exception as e:
+        status_container.update(label=f"Execution failed: {str(e)[:100]}", state="error")
+        st.error(f"Analysis failed: {str(e)}")
+        st.stop()
 
     st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
 
@@ -577,7 +653,17 @@ if run_btn:
             st.markdown(result["final_answer"])
             st.markdown('</div>', unsafe_allow_html=True)
 
-        if result.get("visualization_path") and Path(result["visualization_path"]).exists():
+        if result.get("plotly_spec"):
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown('<div class="card-title">Interactive Visual Insight</div>', unsafe_allow_html=True)
+            try:
+                fig = go.Figure(result["plotly_spec"])
+                st.plotly_chart(fig, use_container_width=True, theme=None)
+            except Exception:
+                if result.get("visualization_path") and Path(result["visualization_path"]).exists():
+                    st.image(result["visualization_path"], use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+        elif result.get("visualization_path") and Path(result["visualization_path"]).exists():
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.markdown('<div class="card-title">Visual Insight</div>', unsafe_allow_html=True)
             st.image(result["visualization_path"], use_container_width=True)
@@ -588,12 +674,15 @@ if run_btn:
                 st.dataframe(df, use_container_width=True, height=260)
 
         if result.get("generated_sql"):
-            with st.expander("Executed SQL Statement", expanded=False):
+            with st.expander("Executed SQL Statement & Execution Plan", expanded=False):
                 st.code(result["generated_sql"], language="sql")
                 if result.get("sql_purpose"):
-                    st.caption(f"Intent: {result['sql_purpose']}")
+                    st.caption(f"**Intent**: {result['sql_purpose']}")
                 if result.get("sql_assumptions"):
-                    st.caption(f"Assumptions: {', '.join(result['sql_assumptions'])}")
+                    st.caption(f"**Assumptions**: {', '.join(result['sql_assumptions'])}")
+                if result.get("explain_plan"):
+                    st.markdown("**Query Plan (`EXPLAIN`):**")
+                    st.code(result["explain_plan"], language="text")
 
     with col_side:
         st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -625,6 +714,14 @@ if run_btn:
         </div>
         ''', unsafe_allow_html=True)
 
+        if result.get("selected_tables"):
+            st.markdown(f'''
+            <div class="meta-item">
+                <span class="meta-item-label">Linked Tables</span>
+                <span class="meta-item-val">{", ".join(result["selected_tables"])}</span>
+            </div>
+            ''', unsafe_allow_html=True)
+
         if result.get("intent"):
             st.markdown('<div style="margin-top: 1rem;" class="card-title">Inferred Intent</div>', unsafe_allow_html=True)
             st.markdown(f'<div style="font-size:0.82rem;color:#94a3b8;line-height:1.5;">{result["intent"]}</div>', unsafe_allow_html=True)
@@ -639,6 +736,11 @@ if run_btn:
                 </div>
                 ''', unsafe_allow_html=True)
 
+        if result.get("query_warnings"):
+            st.markdown('<div style="margin-top: 1rem;" class="card-title">Query Performance Audits</div>', unsafe_allow_html=True)
+            for w in result["query_warnings"]:
+                st.markdown(f'<div style="font-size:0.78rem;color:#f59e0b;padding:2px 0;">⚠️ {w}</div>', unsafe_allow_html=True)
+
         st.markdown('</div>', unsafe_allow_html=True)
 
         if result.get("execution_error"):
@@ -648,20 +750,3 @@ if run_btn:
             st.markdown('</div>', unsafe_allow_html=True)
 
 
-elif not st.session_state.history:
-    st.markdown("<div style='margin-top: 2rem;'></div>", unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3)
-    pillars = [
-        ("Structured Planning", "Translates business questions into targeted schema mappings and formal analytical strategies before SQL generation."),
-        ("Deterministic Safety", "Validates every query against AST security rules, disallows destructive operations, and enforces read-only execution."),
-        ("Automated Self-Correction", "Captures database engine diagnostics and schema hints to automatically correct queries through iterative refinement."),
-    ]
-    for i, (title, desc) in enumerate(pillars):
-        col = [c1, c2, c3][i]
-        with col:
-            st.markdown(f"""
-            <div class="card" style="min-height: 140px;">
-                <div style="font-weight:600;font-size:0.88rem;color:#f1f5f9;margin-bottom:0.4rem">{title}</div>
-                <div style="font-size:0.8rem;color:#64748b;line-height:1.55">{desc}</div>
-            </div>
-            """, unsafe_allow_html=True)
