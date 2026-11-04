@@ -141,7 +141,6 @@ def stream_workflow(
                 "current_state": current_state,
             }
 
-
 def run_workflow(
     question: str,
     db_config: dict,
